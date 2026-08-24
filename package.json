@@ -1,0 +1,26 @@
+{
+  "name": "com.deucarian.webgl-template",
+  "version": "0.1.0",
+  "displayName": "Deucarian WebGL Template",
+  "description": "Reusable browser shell, lifecycle bridge, and project synchronization for Deucarian Unity WebGL applications.",
+  "unity": "6000.0",
+  "license": "MIT",
+  "author": {
+    "name": "Deucarian"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Deucarian/WebGL-Template.git"
+  },
+  "keywords": [
+    "deucarian",
+    "webgl",
+    "template",
+    "browser",
+    "loading"
+  ],
+  "dependencies": {
+    "com.deucarian.build-pipeline": "0.5.0",
+    "com.unity.modules.jsonserialize": "1.0.0"
+  }
+}

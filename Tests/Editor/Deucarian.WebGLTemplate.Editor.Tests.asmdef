@@ -1,0 +1,23 @@
+{
+  "name": "Deucarian.WebGLTemplate.Editor.Tests",
+  "rootNamespace": "Deucarian.WebGLTemplate.Tests",
+  "references": [
+    "Deucarian.BuildPipeline.Editor",
+    "Deucarian.WebGLTemplate",
+    "Deucarian.WebGLTemplate.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "noEngineReferences": false
+}

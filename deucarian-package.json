@@ -1,0 +1,26 @@
+{
+  "packageId": "com.deucarian.webgl-template",
+  "displayName": "Deucarian WebGL Template",
+  "samplePolicy": "tool",
+  "ownedCapabilities": [
+    "webgl-browser-template"
+  ],
+  "runtimeAssemblies": [
+    "Deucarian.WebGLTemplate"
+  ],
+  "editorAssemblies": [
+    "Deucarian.WebGLTemplate.Editor"
+  ],
+  "sampleAssemblies": [],
+  "testAssemblies": [
+    "Deucarian.WebGLTemplate.Editor.Tests"
+  ],
+  "requiredDependencies": [
+    "com.deucarian.build-pipeline",
+    "com.unity.modules.jsonserialize"
+  ],
+  "optionalVersionDefinedDependencies": [],
+  "allowedDirectDebugCalls": [],
+  "allowedDirectUnityObjectLifetimeCalls": [],
+  "expectedSamplesRoot": ""
+}

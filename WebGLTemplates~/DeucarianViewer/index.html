@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-tone="light" data-surface-treatment="frosted-glass">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#F3F4F6">
+    <title>{{{ PRODUCT_NAME }}}</title>
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <script src="TemplateData/theme.generated.js"></script>
+    <script src="TemplateData/theme.js"></script>
+    <script src="TemplateData/shell.js"></script>
+  </head>
+  <body>
+    <main id="unity-container" aria-label="{{{ PRODUCT_NAME }}} 3D viewer">
+      <canvas id="unity-canvas" width={{{ WIDTH }}} height={{{ HEIGHT }}} tabindex="-1" aria-label="Interactive 3D model viewer"></canvas>
+
+      <section id="unity-loading-overlay" class="shell-overlay" data-state="loading" aria-busy="true">
+        <div class="shell-surface loading-card">
+          <div class="loading-content">
+            <div class="brand-lockup">
+              <svg class="brand-mark" viewBox="0 0 64 64" role="img" aria-label="Deucarian">
+                <path d="M32 3 58 18v28L32 61 6 46V18Z" fill="currentColor" opacity=".18"/>
+                <path d="M32 11 50 21v20L32 51 14 41V21Zm0 9-10 6v10l10 6 10-6V26Z" fill="currentColor"/>
+              </svg>
+              <span>{{{ PRODUCT_NAME }}}</span>
+            </div>
+            <div id="unity-progress" class="progress" role="progressbar" aria-label="Viewer loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <span id="unity-progress-bar" class="progress-bar"></span>
+            </div>
+            <div class="progress-meta" role="status" aria-live="polite">
+              <span id="unity-loading-status">Loading application</span>
+              <span id="unity-progress-percentage">0%</span>
+            </div>
+          </div>
+
+          <div class="failure-content" role="alert">
+            <span class="failure-icon" aria-hidden="true">!</span>
+            <p class="eyebrow">Viewer unavailable</p>
+            <h1>We couldn’t start the 3D viewer</h1>
+            <p id="unity-failure-message">Check your connection and try again.</p>
+            <button id="unity-retry-button" class="primary-button" type="button">Try again</button>
+          </div>
+        </div>
+      </section>
+
+      <aside id="unity-warning" class="warning-stack" aria-live="polite" aria-atomic="false"></aside>
+      <button id="unity-fullscreen-button" class="shell-surface icon-button fullscreen-button" type="button" aria-label="Enter fullscreen" title="Enter fullscreen" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5m11 5h5v-5"/></svg>
+      </button>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+        const canvas = document.querySelector("#unity-canvas");
+        const fullscreenButton = document.querySelector("#unity-fullscreen-button");
+        const shell = window.DeucarianWebGLShell.create({ canvas });
+        window.DeucarianWebGLShell = shell;
+
+        const buildUrl = "Build";
+        const loaderUrl = buildUrl + "/{{{ LOADER_FILENAME }}}";
+        const config = {
+          arguments: [],
+          dataUrl: buildUrl + "/{{{ DATA_FILENAME }}}",
+          frameworkUrl: buildUrl + "/{{{ FRAMEWORK_FILENAME }}}",
+#if USE_THREADS
+          workerUrl: buildUrl + "/{{{ WORKER_FILENAME }}}",
+#endif
+#if USE_WASM
+          codeUrl: buildUrl + "/{{{ CODE_FILENAME }}}",
+#endif
+#if SYMBOLS_FILENAME
+          symbolsUrl: buildUrl + "/{{{ SYMBOLS_FILENAME }}}",
+#endif
+          streamingAssetsUrl: "StreamingAssets",
+          companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+          productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+          productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+          showBanner: shell.showWarning
+        };
+
+#if BACKGROUND_FILENAME
+        canvas.style.backgroundImage = "url('" + buildUrl + "/{{{ BACKGROUND_FILENAME.replace(/'/g, '%27') }}}')";
+#endif
+
+        const loaderScript = document.createElement("script");
+        loaderScript.src = loaderUrl;
+        loaderScript.async = true;
+        loaderScript.addEventListener("error", () => shell.showFailure("The viewer files could not be downloaded. Check your connection and try again."));
+        loaderScript.addEventListener("load", () => {
+          createUnityInstance(canvas, config, shell.setApplicationProgress)
+            .then((unityInstance) => {
+              window.unityInstance = unityInstance;
+              shell.markEngineReady();
+              fullscreenButton.addEventListener("click", () => unityInstance.SetFullscreen(1));
+            })
+            .catch((error) => shell.showFailure(error && error.message ? error.message : error));
+        });
+        document.body.appendChild(loaderScript);
+      })();
+    </script>
+  </body>
+</html>

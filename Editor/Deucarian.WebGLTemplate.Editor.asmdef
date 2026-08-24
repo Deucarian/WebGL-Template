@@ -1,0 +1,19 @@
+{
+  "name": "Deucarian.WebGLTemplate.Editor",
+  "rootNamespace": "Deucarian.WebGLTemplate.Editor",
+  "references": [
+    "Deucarian.BuildPipeline.Editor",
+    "Deucarian.WebGLTemplate"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
