@@ -19,6 +19,8 @@ test("template owns the generic two-stage ready shell", async () => {
   assert.match(shell, /applicationReady/);
   assert.match(shell, /deucarian-viewer-state/);
   assert.match(shell, /deucarian-command-event/);
+  assert.match(index, /aria-label="Building Virtuality"/);
+  assert.match(index, /viewBox="0 0 436 232"/);
   assert.doesNotMatch(index + shell, /Simultria Report Viewer/);
 });
 
