@@ -227,7 +227,146 @@ test("disposed startup reports closure immediately rather than waiting for timeo
   assert.equal(browser.failureMessage.textContent, "The viewer was closed. Reload to try again.");
 });
 
-async function createShellBrowser({ reducedMotion = false } = {}) {
+test("model initialization has a truthful stage and never returns to engine loading", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.markEngineReady();
+  browser.window.dispatchEvent(new browser.CustomEvent("deucarian-viewer-state", {
+    detail: { state: "loading", message: "Loading model" }
+  }));
+  assert.equal(browser.status.textContent, "Loading model");
+  browser.shell.reportLoadingProgress({ phase: "model", displayText: "Resolving model source.", normalized: 0 });
+  assert.notEqual(browser.status.textContent, "Loading application");
+  browser.shell.reportLoadingProgress({ phase: "downloading", normalized: 0.5 });
+  browser.shell.reportLoadingProgress({ phase: "model", displayText: "Unrecognized work", normalized: 0 });
+  assert.equal(browser.status.textContent, "Downloading model");
+  assert.equal(browser.overlay.hidden, false);
+  assert.notEqual(browser.progressBar.style.width, "100%");
+});
+
+test("build-profile fallback has a fixed persistent notice separate from progress", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.reportLoadingProgress({ phase: "build_profile_fallback", displayText: "Production" });
+  assert.equal(browser.startupNotice.hidden, false);
+  assert.equal(browser.startupNotice.textContent, "Version record not found. Using the Production build profile.");
+  browser.shell.markEngineReady();
+  browser.shell.reportLoadingProgress({ phase: "downloading", normalized: 0.5 });
+  assert.equal(browser.status.textContent, "Downloading model");
+  assert.match(browser.startupNotice.textContent, /Production build profile/);
+  assert.equal(browser.overlay.hidden, false);
+  const exact = await createShellBrowser();
+  exact.shell.reportLoadingProgress({ phase: "resolving_environment", normalized: 0 });
+  assert.equal(exact.startupNotice.hidden, true);
+});
+
+test("fallback accepts only built-in environment identifiers and never exposes supplied text", async () => {
+  for (const text of ["Local", "Production token=SYNTHETIC_ONLY", "https://host.example/?token=SYNTHETIC_ONLY"]) {
+    const browser = await createShellBrowser();
+    browser.shell.reportLoadingProgress({ phase: "build_profile_fallback", displayText: text });
+    assert.equal(browser.startupNotice.hidden, true);
+    assert.doesNotMatch(browser.status.textContent + browser.startupNotice.textContent, /SYNTHETIC_ONLY/);
+  }
+});
+
+test("a cached pre-listener failure is replayed without revealing after late readiness", async () => {
+  const browser = await createShellBrowser({ lastState: { state: "failed", message: "viewer_parent_origin_invalid" } });
+  assert.equal(browser.overlay.dataset.state, "error");
+  assert.match(browser.failureMessage.textContent, /trusted parent origin/);
+  browser.shell.markEngineReady();
+  browser.window.dispatchEvent(new browser.CustomEvent("deucarian-viewer-state", { detail: { state: "ready" } }));
+  browser.runTimers(400);
+  assert.equal(browser.overlay.hidden, false);
+});
+
+test("failure boundaries discard remote error text and retain only known diagnostics", async () => {
+  const unsafe = [
+    "Authorization: Bearer SYNTHETIC_ONLY", "access_token=SYNTHETIC_ONLY",
+    '{"accessToken":"SYNTHETIC_ONLY"}', "password=multiple words SYNTHETIC_ONLY",
+    "https://user:SYNTHETIC_ONLY@host.example/path?token=SYNTHETIC_ONLY", "\nsecret: SYNTHETIC_ONLY",
+    "x".repeat(10000) + "SYNTHETIC_ONLY"
+  ];
+  for (const text of unsafe) {
+    const browser = await createShellBrowser();
+    browser.shell.showFailure(text);
+    assert.equal(browser.failureMessage.textContent, "The viewer could not start. Reload to try again.");
+    assert.doesNotMatch(browser.failureMessage.textContent, /SYNTHETIC_ONLY/);
+  }
+  const classified = await createShellBrowser();
+  classified.window.dispatchEvent(new classified.CustomEvent("deucarian-viewer-state", {
+    detail: { state: "failed", code: "viewer_environment_resolution_failed", message: unsafe[0] }
+  }));
+  assert.match(classified.failureMessage.textContent, /version directory/);
+  assert.doesNotMatch(classified.failureMessage.textContent, /SYNTHETIC_ONLY/);
+});
+
+test("engine rejection and warning presentation cannot display raw payload text", async () => {
+  const index = await readFile(new URL("index.html", templateRoot), "utf8");
+  assert.doesNotMatch(index, /shell\.showFailure\(error/);
+  const browser = await createShellBrowser();
+  browser.shell.showWarning("Authorization: Bearer SYNTHETIC_ONLY", "warning");
+  assert.equal(browser.warningStack.children.length, 1);
+  assert.doesNotMatch(browser.warningStack.children[0].children[1].textContent, /SYNTHETIC_ONLY/);
+});
+
+for (const failureMode of ["download", "synchronous", "rejected"]) {
+  test(`actual template handles ${failureMode} engine failure without exposing details`, async () => {
+    const html = await readFile(new URL("index.html", templateRoot), "utf8");
+    const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)][0][1]
+      .replace(/^#(?:if|endif).*$/gm, "")
+      .replace(/\{\{\{ JSON.stringify\([A-Z_]+\) \}\}\}/g, '"Test Viewer"')
+      .replace(/\{\{\{[\s\S]*?\}\}\}/g, "test-file");
+    const listeners = new Map();
+    const failures = [];
+    let engineReady = false;
+    const shell = {
+      showFailure: code => failures.push(code),
+      showWarning() {}, setApplicationProgress() {},
+      markEngineReady: () => { engineReady = true; }
+    };
+    const document = {
+      querySelector: () => new FakeElement(),
+      createElement: () => ({ addEventListener: (name, callback) => listeners.set(name, callback) }),
+      body: { appendChild() {} }
+    };
+    vm.runInNewContext(script, {
+      document, window: { DeucarianWebGLShell: { create: () => shell } },
+      createUnityInstance() {
+        const error = new Error("Authorization: Bearer SYNTHETIC_ONLY");
+        if (failureMode === "synchronous") throw error;
+        return Promise.reject(error);
+      }
+    });
+    listeners.get(failureMode === "download" ? "error" : "load")();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(failures, [failureMode === "download" ? "engine_load_failed" : "engine_start_failed"]);
+    assert.equal(engineReady, false);
+  });
+}
+
+test("retry reloads the page and does not synthesize viewer readiness", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.showFailure("viewer_connection_failed");
+  browser.retryButton.dispatch("click");
+  assert.equal(browser.window.location.reloadCount, 1);
+  assert.equal(browser.overlay.dataset.state, "error");
+  assert.equal(browser.container.classList.contains("viewer-loaded"), false);
+});
+
+test("fallback notices accept all deployable profiles and ignore terminal late notices", async () => {
+  for (const environment of ["Production", "Development", "Testing", "Acceptance"]) {
+    const browser = await createShellBrowser();
+    browser.shell.reportLoadingProgress({ phase: "build_profile_fallback", displayText: environment.toUpperCase() });
+    assert.match(browser.startupNotice.textContent, new RegExp(environment + " build profile"));
+  }
+  for (const terminal of ["failed", "ready"]) {
+    const browser = await createShellBrowser();
+    browser.shell.markEngineReady();
+    browser.window.dispatchEvent(new browser.CustomEvent("deucarian-viewer-state", { detail: { state: terminal } }));
+    browser.shell.reportLoadingProgress({ phase: "build_profile_fallback", displayText: "Production" });
+    assert.equal(browser.startupNotice.hidden, true);
+  }
+});
+
+async function createShellBrowser({ reducedMotion = false, lastState } = {}) {
   const source = await readFile(
     new URL("TemplateData/shell.js", templateRoot),
     "utf8");
@@ -243,6 +382,7 @@ async function createShellBrowser({ reducedMotion = false } = {}) {
   const window = {
     self: null,
     top: null,
+    location: { reloadCount: 0, reload() { this.reloadCount++; } },
     matchMedia: () => ({ matches: reducedMotion }),
     setTimeout(callback, delay) {
       timers.push({ callback, delay, cancelled: false });
@@ -265,6 +405,7 @@ async function createShellBrowser({ reducedMotion = false } = {}) {
   };
   window.self = window;
   window.top = window;
+  window.DeucarianWebGLLastState = lastState;
   const document = {
     querySelector(selector) {
       return elements.get(selector) ?? null;
@@ -277,6 +418,8 @@ async function createShellBrowser({ reducedMotion = false } = {}) {
   const overlay = addElement(elements, "#unity-loading-overlay");
   overlay.dataset.state = "loading";
   const status = addElement(elements, "#unity-loading-status");
+  const startupNotice = addElement(elements, "#unity-startup-notice");
+  startupNotice.hidden = true;
   const progress = addElement(elements, "#unity-progress");
   const progressBar = addElement(elements, "#unity-progress-bar");
   const progressPercentage = addElement(elements, "#unity-progress-percentage");
@@ -305,6 +448,7 @@ async function createShellBrowser({ reducedMotion = false } = {}) {
     container,
     overlay,
     status,
+    startupNotice,
     progress,
     progressBar,
     progressPercentage,
@@ -341,6 +485,7 @@ class FakeElement {
     this.tabIndex = -1;
     this.textContent = "";
     this.focused = false;
+    this.listeners = new Map();
   }
 
   setAttribute(name, value) {
@@ -355,6 +500,11 @@ class FakeElement {
     this.children.push(...children);
   }
 
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
   remove() {
     this.removed = true;
   }
@@ -363,7 +513,12 @@ class FakeElement {
     this.focused = true;
   }
 
-  addEventListener() {
+  addEventListener(name, callback) {
+    this.listeners.set(name, callback);
+  }
+
+  dispatch(name) {
+    this.listeners.get(name)?.();
   }
 }
 

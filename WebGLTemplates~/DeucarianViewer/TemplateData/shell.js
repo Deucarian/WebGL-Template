@@ -7,6 +7,7 @@
       var container = document.querySelector("#unity-container");
       var overlay = document.querySelector("#unity-loading-overlay");
       var status = document.querySelector("#unity-loading-status");
+      var startupNotice = document.querySelector("#unity-startup-notice");
       var progress = document.querySelector("#unity-progress");
       var progressBar = document.querySelector("#unity-progress-bar");
       var progressPercentage = document.querySelector("#unity-progress-percentage");
@@ -29,11 +30,35 @@
       var stages = Object.freeze({
         application: { start: 0, end: 0.65, rank: 0, label: "Loading application" },
         connecting: { start: 0.65, end: 0.70, rank: 1, label: "Connecting" },
+        model: { start: 0.65, end: 0.70, rank: 1, label: "Loading model" },
         downloading: { start: 0.70, end: 0.88, rank: 2, label: "Downloading model" },
         opening: { start: 0.88, end: 0.94, rank: 3, label: "Opening model" },
         preparing: { start: 0.94, end: 0.99, rank: 4, label: "Preparing viewer" },
         ready: { start: 1, end: 1, rank: 5, label: "Viewer ready" }
       });
+
+      // Only fixed copy crosses the presentation boundary. Exception strings,
+      // request URLs and payloads must never become page text or cached errors.
+      var failureMessages = Object.freeze({
+        engine_load_failed: "The viewer files could not be downloaded. Check your connection and try again.",
+        engine_start_failed: "The application could not start. Reload to try again.",
+        engine_startup_timeout: "The application did not finish starting. Try again.",
+        viewer_initialization_timeout: "The viewer did not finish initialization. Try again.",
+        viewer_parent_origin_invalid: "The host page must provide a trusted parent origin before starting the viewer.",
+        viewer_composition_failed: "The viewer startup configuration is incomplete. Check the selected build and try again.",
+        viewer_environment_resolution_failed: "The viewer could not resolve its exact version directory record. Check the connection and try again.",
+        viewer_connection_failed: "The viewer could not prepare its backend connection. Check the selected build and try again.",
+        viewer_initialization_failed: "The viewer could not finish initialization. Reload to try again.",
+        viewer_disposed: "The viewer was closed. Reload to try again.",
+        "Model download failed.": "Model download failed.",
+        "Initialization failed.": "Initialization failed.",
+        "Viewer initialization failed": "The viewer could not finish initialization. Reload to try again."
+      });
+
+      function failureText(code) {
+        return typeof code === "string" && Object.prototype.hasOwnProperty.call(failureMessages, code)
+          ? failureMessages[code] : "The viewer could not start. Reload to try again.";
+      }
 
       function clamp(value) {
         var number = Number(value);
@@ -52,8 +77,8 @@
         if (failed || revealed) return;
         stalledTimer = window.setTimeout(function () {
           showFailure(engineReady
-            ? "The viewer did not finish initialization. Try again."
-            : "The application did not finish starting. Try again.");
+            ? "viewer_initialization_timeout"
+            : "engine_startup_timeout");
         }, stalledTimeoutMilliseconds);
       }
 
@@ -92,7 +117,8 @@
         if (copy.includes("open")) return stages.opening;
         if (copy.includes("download")) return stages.downloading;
         if (copy.includes("connect")) return stages.connecting;
-        return stages.application;
+        if (key === "model" || copy === "loadingmodel") return stages.model;
+        return engineReady ? stages.model : stages.application;
       }
 
       function reportLoadingProgress(detail) {
@@ -104,8 +130,17 @@
         var displayText = detail.displayText || detail.DisplayText || detail.display_text || detail.message || detail.Message || "";
         var normalized = detail.normalizedProgress ?? detail.NormalizedProgress ?? detail.normalized_progress ?? detail.normalized ?? detail.progress ?? detail.Progress ?? 0;
         var phaseKey = canonical(phase);
+        if (phaseKey === "buildprofilefallback") {
+          var environments = { production: "Production", development: "Development", testing: "Testing", acceptance: "Acceptance" };
+          var environment = typeof displayText === "string" ? displayText.toLowerCase() : "";
+          if (!failed && !revealed && startupNotice && Object.prototype.hasOwnProperty.call(environments, environment)) {
+            startupNotice.textContent = "Version record not found. Using the " + environments[environment] + " build profile.";
+            startupNotice.hidden = false;
+          }
+          return;
+        }
         if (phaseKey.includes("failed") || phaseKey.includes("error")) {
-          showFailure(displayText);
+          showFailure(detail.code || displayText);
           return;
         }
         var stage = resolveStage(phase, displayText);
@@ -123,9 +158,7 @@
         clearStalledTimer();
         window.clearTimeout(revealTimer);
         revealTimer = 0;
-        failureMessage.textContent = message && String(message).trim()
-          ? String(message).trim()
-          : "Check your connection and try again.";
+        failureMessage.textContent = failureText(message);
         overlay.hidden = false;
         overlay.dataset.state = "error";
         overlay.setAttribute("aria-busy", "false");
@@ -150,7 +183,8 @@
         marker.setAttribute("aria-hidden", "true");
         marker.textContent = kind === "info" ? "i" : "!";
         var copy = document.createElement("p");
-        copy.textContent = message;
+        copy.textContent = kind === "error" ? failureText(message)
+          : "The viewer reported a startup notice. If loading does not finish, try again.";
         banner.append(marker, copy);
         warningStack.appendChild(banner);
         if (kind !== "error") {
@@ -198,10 +232,13 @@
           revealIfReady();
         } else if (state === "loading" && !revealed) {
           applicationReady = false;
+          if (detail.message === "Loading model" || detail.phase === "model") {
+            render(stages.model.start, stages.model);
+          }
         } else if (state === "failed" || state === "error") {
-          showFailure(detail.message || detail.error);
+          showFailure(detail.code || detail.message || detail.error);
         } else if (state === "disposed") {
-          showFailure("The viewer was closed. Reload to try again.");
+          showFailure("viewer_disposed");
         }
       }
 
@@ -212,10 +249,11 @@
           revealIfReady();
         } else if (detail.event_name === "viewer_loading" && !revealed) {
           applicationReady = false;
+          render(stages.model.start, stages.model);
         } else if (detail.event_name === "viewer_failed") {
-          showFailure(detail.payload && detail.payload.message);
+          showFailure(detail.payload && (detail.payload.code || detail.payload.message));
         } else if (detail.event_name === "viewer_disposed") {
-          showFailure("The viewer was closed. Reload to try again.");
+          showFailure("viewer_disposed");
         }
       }
 
@@ -224,6 +262,7 @@
       window.addEventListener("deucarian-viewer-state", acceptState);
       window.addEventListener("deucarian-command-event", acceptCommandEvent);
       armStalledTimer();
+      if (window.DeucarianWebGLLastState) acceptState({ detail: window.DeucarianWebGLLastState });
 
       return Object.freeze({
         setApplicationProgress: setApplicationProgress,
