@@ -36,6 +36,23 @@ The runtime bridge and command transport publish product-neutral browser state:
 The shell reveals the canvas only after Unity's engine and the application are
 both ready. It never receives tokens, model URLs, or backend DTOs.
 
+Progress reports are intermediate work only and cannot produce 100% or
+"Viewer ready", even when their text says that AssetBundle content is ready.
+Only an explicit `ready` lifecycle state or `viewer_ready` event, together with
+engine completion, finishes startup. Engine completion alone shows "Waiting for
+viewer initialization". A later loading state before reveal revokes an earlier
+application-ready signal.
+
+The 150-second stalled-startup timer distinguishes engine startup from unfinished
+application initialization. Failure or disposal remains visible until reload;
+late progress, readiness, or a pending reveal animation cannot hide the error.
+
+Run the browser contract tests without launching Unity:
+
+```text
+node --test Browser~/tests/*.test.mjs
+```
+
 ## Ownership boundary
 
 The package owns the generated browser shell only. Viewer UI rendered inside

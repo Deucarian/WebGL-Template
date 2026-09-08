@@ -77,7 +77,157 @@ test("startup failure stays visible with a retry message", async () => {
   assert.equal(browser.retryButton.focused, true);
 });
 
-async function createShellBrowser() {
+test("intermediate ready text and progress phases never announce final readiness", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.markEngineReady();
+
+  for (const detail of [
+    { phase: "model", displayText: "AssetBundle content is ready.", normalizedProgress: 1 },
+    { phase: "DiscoveringContent", displayText: "AssetBundle content is ready.", normalizedProgress: 1 },
+    { phase: "model", displayText: "Ready with AssetBundle object from 2 GameObject asset(s).", normalizedProgress: 1 },
+    { phase: "ready", normalizedProgress: 1 },
+    { phase: "Completed", normalizedProgress: 100 },
+    { phase: "not_ready", displayText: "Viewer ready", normalizedProgress: Infinity }
+  ]) {
+    browser.shell.reportLoadingProgress(detail);
+    assert.equal(browser.overlay.dataset.state, "loading");
+    assert.equal(browser.status.textContent, "Preparing viewer");
+    assert.equal(browser.progress.getAttribute("aria-valuenow"), "99");
+    assert.equal(browser.overlay.hidden, false);
+    assert.equal(browser.container.classList.contains("viewer-loaded"), false);
+  }
+});
+
+test("engine readiness shows an explicit initialization wait, unaffected by late engine progress", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.markEngineReady();
+  assert.equal(browser.status.textContent, "Waiting for viewer initialization");
+  assert.equal(browser.progressBar.style.width, "65%");
+  browser.shell.setApplicationProgress(1);
+  browser.shell.markEngineReady();
+  assert.equal(browser.status.textContent, "Waiting for viewer initialization");
+  browser.shell.reportLoadingProgress({ phase: "downloading", normalizedProgress: 0.5 });
+  assert.equal(browser.status.textContent, "Downloading model");
+  assert.equal(browser.progressBar.style.width, "79%");
+});
+
+for (const readyEvent of ["deucarian-viewer-state", "deucarian-command-event"]) {
+  for (const engineFirst of [true, false]) {
+    test(`${readyEvent} requires both explicit readiness signals, engine first: ${engineFirst}`, async () => {
+      const browser = await createShellBrowser();
+      const signalApplication = () => browser.window.dispatchEvent(new browser.CustomEvent(
+        readyEvent, { detail: readyEvent === "deucarian-viewer-state"
+          ? { state: "ready" } : { event_name: "viewer_ready" } }));
+
+      if (engineFirst) browser.shell.markEngineReady();
+      else signalApplication();
+      assert.equal(browser.overlay.dataset.state, "loading");
+      assert.equal(browser.overlay.hidden, false);
+      assert.notEqual(browser.status.textContent, "Viewer ready");
+      assert.notEqual(browser.progress.getAttribute("aria-valuenow"), "100");
+
+      if (engineFirst) signalApplication();
+      else browser.shell.markEngineReady();
+      assert.equal(browser.status.textContent, "Viewer ready");
+      assert.equal(browser.progressBar.style.width, "100%");
+      assert.equal(browser.overlay.dataset.state, "complete");
+      browser.runTimers(400);
+      assert.equal(browser.overlay.hidden, true);
+      browser.runTimers(150000);
+      assert.equal(browser.overlay.dataset.state, "complete");
+    });
+  }
+}
+
+test("a loading lifecycle revokes early application readiness until it is explicitly ready again", async () => {
+  const browser = await createShellBrowser();
+  const state = value => browser.window.dispatchEvent(new browser.CustomEvent(
+    "deucarian-viewer-state", { detail: { state: value } }));
+  state("ready");
+  state("loading");
+  browser.shell.markEngineReady();
+  assert.equal(browser.overlay.dataset.state, "loading");
+  state("ready");
+  assert.equal(browser.overlay.dataset.state, "complete");
+});
+
+test("a loading command event revokes early application readiness", async () => {
+  const browser = await createShellBrowser();
+  const event = name => browser.window.dispatchEvent(new browser.CustomEvent(
+    "deucarian-command-event", { detail: { event_name: name } }));
+  event("viewer_ready");
+  event("viewer_loading");
+  browser.shell.markEngineReady();
+  assert.equal(browser.overlay.dataset.state, "loading");
+  event("viewer_ready");
+  assert.equal(browser.overlay.dataset.state, "complete");
+});
+
+test("failure is terminal despite later progress, readiness and timeout callbacks", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.showFailure("Initialization failed.");
+  browser.shell.markEngineReady();
+  browser.shell.reportLoadingProgress({ phase: "ready", normalizedProgress: 1 });
+  browser.window.dispatchEvent(new browser.CustomEvent(
+    "deucarian-viewer-state", { detail: { state: "ready" } }));
+  browser.window.dispatchEvent(new browser.CustomEvent(
+    "deucarian-command-event", { detail: { event_name: "viewer_ready" } }));
+  browser.shell.showFailure("A later error.");
+  browser.runTimers(150000);
+  browser.runTimers(400);
+  assert.equal(browser.overlay.dataset.state, "error");
+  assert.equal(browser.overlay.hidden, false);
+  assert.equal(browser.status.textContent, "Viewer unavailable");
+  assert.equal(browser.failureMessage.textContent, "Initialization failed.");
+  assert.equal(browser.fullscreenButton.hidden, true);
+  assert.equal(browser.canvas.tabIndex, -1);
+});
+
+for (const reducedMotion of [false, true]) {
+  test(`failure during reveal stays visible and cannot focus the canvas, reduced motion: ${reducedMotion}`, async () => {
+    const browser = await createShellBrowser({ reducedMotion });
+    browser.shell.markEngineReady();
+    browser.window.dispatchEvent(new browser.CustomEvent(
+      "deucarian-viewer-state", { detail: { state: "ready" } }));
+    browser.window.dispatchEvent(new browser.CustomEvent(
+      "deucarian-command-event", { detail: {
+        event_name: "viewer_failed", payload: { message: "Initialization failed." }
+      } }));
+    browser.runTimers(reducedMotion ? 0 : 400);
+    assert.equal(browser.overlay.dataset.state, "error");
+    assert.equal(browser.overlay.hidden, false);
+    assert.equal(browser.canvas.focused, false);
+    assert.equal(browser.retryButton.focused, true);
+  });
+}
+
+test("startup timeout distinguishes engine startup from application initialization", async () => {
+  const startup = await createShellBrowser();
+  startup.runTimers(150000);
+  assert.equal(startup.failureMessage.textContent, "The application did not finish starting. Try again.");
+  assert.equal(startup.overlay.dataset.state, "error");
+
+  const initialization = await createShellBrowser();
+  initialization.shell.markEngineReady();
+  initialization.shell.reportLoadingProgress({ phase: "model", displayText: "AssetBundle content is ready.", normalizedProgress: 1 });
+  initialization.runTimers(150000);
+  assert.equal(initialization.failureMessage.textContent, "The viewer did not finish initialization. Try again.");
+  assert.equal(initialization.overlay.dataset.state, "error");
+  assert.equal(initialization.overlay.hidden, false);
+  assert.equal(initialization.progressBar.style.width, "99%");
+});
+
+test("disposed startup reports closure immediately rather than waiting for timeout", async () => {
+  const browser = await createShellBrowser();
+  browser.shell.markEngineReady();
+  browser.window.dispatchEvent(new browser.CustomEvent(
+    "deucarian-viewer-state", { detail: { state: "disposed" } }));
+  browser.runTimers(150000);
+  assert.equal(browser.overlay.dataset.state, "error");
+  assert.equal(browser.failureMessage.textContent, "The viewer was closed. Reload to try again.");
+});
+
+async function createShellBrowser({ reducedMotion = false } = {}) {
   const source = await readFile(
     new URL("TemplateData/shell.js", templateRoot),
     "utf8");
@@ -93,7 +243,7 @@ async function createShellBrowser() {
   const window = {
     self: null,
     top: null,
-    matchMedia: () => ({ matches: false }),
+    matchMedia: () => ({ matches: reducedMotion }),
     setTimeout(callback, delay) {
       timers.push({ callback, delay, cancelled: false });
       return timers.length;
@@ -166,6 +316,7 @@ async function createShellBrowser() {
     runTimers(delay) {
       for (const timer of timers) {
         if (!timer.cancelled && timer.delay === delay) {
+          timer.cancelled = true;
           timer.callback();
         }
       }

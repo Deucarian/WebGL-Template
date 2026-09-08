@@ -20,6 +20,7 @@
       var highestProgress = 0;
       var highestStageRank = 0;
       var stalledTimer = 0;
+      var revealTimer = 0;
       var engineReady = false;
       var applicationReady = false;
       var revealed = false;
@@ -50,7 +51,9 @@
         clearStalledTimer();
         if (failed || revealed) return;
         stalledTimer = window.setTimeout(function () {
-          showFailure("The viewer stopped responding while it was loading. Try again.");
+          showFailure(engineReady
+            ? "The viewer did not finish initialization. Try again."
+            : "The application did not finish starting. Try again.");
         }, stalledTimeoutMilliseconds);
       }
 
@@ -78,12 +81,14 @@
       function resolveStage(phase, displayText) {
         var key = canonical(phase);
         var copy = canonical(displayText);
-        if (key.includes("ready") || copy.includes("ready")) return stages.ready;
+        // Progress describes intermediate work, never application readiness.
+        // AssetBundle discovery can say "content is ready" before instantiation.
+        if (key.includes("ready") || key.includes("complet")) return stages.preparing;
         if (key.includes("final") || key.includes("prepar") || key.includes("discover") || key.includes("instantiat")) return stages.preparing;
         if (key.includes("bundle") || key.includes("open") || key.includes("content")) return stages.opening;
         if (key.includes("download")) return stages.downloading;
         if (key.includes("connect") || key.includes("context") || key.includes("project") || key.includes("resolv")) return stages.connecting;
-        if (copy.includes("prepar") || copy.includes("final")) return stages.preparing;
+        if (copy.includes("prepar") || copy.includes("final") || copy.includes("ready")) return stages.preparing;
         if (copy.includes("open")) return stages.opening;
         if (copy.includes("download")) return stages.downloading;
         if (copy.includes("connect")) return stages.connecting;
@@ -108,19 +113,25 @@
       }
 
       function setApplicationProgress(value) {
+        if (engineReady) return;
         render(clamp(value) * stages.application.end, stages.application);
       }
 
       function showFailure(message) {
+        if (failed) return;
         failed = true;
         clearStalledTimer();
+        window.clearTimeout(revealTimer);
+        revealTimer = 0;
         failureMessage.textContent = message && String(message).trim()
           ? String(message).trim()
           : "Check your connection and try again.";
         overlay.hidden = false;
         overlay.dataset.state = "error";
         overlay.setAttribute("aria-busy", "false");
+        status.textContent = "Viewer unavailable";
         fullscreenButton.hidden = true;
+        canvas.tabIndex = -1;
         retryButton.focus({ preventScroll: true });
       }
 
@@ -160,15 +171,22 @@
         container.classList.add("viewer-loaded");
         overlay.dataset.state = "complete";
         overlay.setAttribute("aria-busy", "false");
-        window.setTimeout(function () {
+        revealTimer = window.setTimeout(function () {
+          revealTimer = 0;
+          if (failed) return;
           overlay.hidden = true;
           if (window.self === window.top) canvas.focus({ preventScroll: true });
         }, reducedMotion.matches ? 0 : 400);
       }
 
       function markEngineReady() {
-        engineReady = true;
+        if (engineReady || failed) return;
         setApplicationProgress(1);
+        engineReady = true;
+        if (!applicationReady && highestStageRank === stages.application.rank) {
+          status.textContent = "Waiting for viewer initialization";
+        }
+        armStalledTimer();
         revealIfReady();
       }
 
@@ -178,8 +196,12 @@
         if (state === "ready") {
           applicationReady = true;
           revealIfReady();
+        } else if (state === "loading" && !revealed) {
+          applicationReady = false;
         } else if (state === "failed" || state === "error") {
           showFailure(detail.message || detail.error);
+        } else if (state === "disposed") {
+          showFailure("The viewer was closed. Reload to try again.");
         }
       }
 
@@ -188,8 +210,12 @@
         if (detail.event_name === "viewer_ready") {
           applicationReady = true;
           revealIfReady();
+        } else if (detail.event_name === "viewer_loading" && !revealed) {
+          applicationReady = false;
         } else if (detail.event_name === "viewer_failed") {
           showFailure(detail.payload && detail.payload.message);
+        } else if (detail.event_name === "viewer_disposed") {
+          showFailure("The viewer was closed. Reload to try again.");
         }
       }
 
