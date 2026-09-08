@@ -2,7 +2,7 @@
 
 Package ID: `com.deucarian.webgl-template`
 
-Follow the canonical Deucarian Package Registry architecture rules.
+Follow the [canonical Deucarian Package Registry architecture rules](https://github.com/Deucarian/Package-Registry/blob/main/ARCHITECTURE.md).
 
 ## Ownership
 
