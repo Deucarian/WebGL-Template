@@ -36,6 +36,38 @@ The runtime bridge and command transport publish product-neutral browser state:
 The shell reveals the canvas only after Unity's engine and the application are
 both ready. It never receives tokens, model URLs, or backend DTOs.
 
+Progress reports are intermediate work only and cannot produce 100% or
+"Viewer ready", even when their text says that AssetBundle content is ready.
+Only an explicit `ready` lifecycle state or `viewer_ready` event, together with
+engine completion, finishes startup. Engine completion alone shows "Waiting for
+viewer initialization". A later loading state before reveal revokes an earlier
+application-ready signal.
+
+The 150-second stalled-startup timer distinguishes engine startup from unfinished
+application initialization. Failure or disposal remains visible until reload;
+late progress, readiness, or a pending reveal animation cannot hide the error.
+
+Early failures cached as `DeucarianWebGLLastState` are replayed when the shell
+attaches. Failure messages accept only known diagnostic codes (including
+`viewer_parent_origin_invalid`, `viewer_composition_failed`,
+`viewer_environment_resolution_failed`, `viewer_connection_failed` and
+`viewer_initialization_failed`); unknown strings use fixed generic copy.
+Engine rejections and warnings never display raw exception or request text.
+
+`Loading` with the fixed message `Loading model`, or progress phase `model`,
+advances beyond engine loading without granting readiness. Progress phase
+`resolving_environment` shows connection work. The optional generic
+`build_profile_fallback` phase accepts only a built-in Production, Development,
+Testing or Acceptance identifier as its display value and shows a separate
+notice during startup. The shell reports this routing decision; it never makes
+the decision, changes an environment or selects a version itself.
+
+Run the browser contract tests without launching Unity:
+
+```text
+node --test Browser~/tests/*.test.mjs
+```
+
 ## Ownership boundary
 
 The package owns the generated browser shell only. Viewer UI rendered inside

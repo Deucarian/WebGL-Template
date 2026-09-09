@@ -84,6 +84,7 @@
               <span id="unity-loading-status">Loading application</span>
               <span id="unity-progress-percentage">0%</span>
             </div>
+            <p id="unity-startup-notice" role="status" hidden></p>
           </div>
 
           <div class="failure-content" role="alert">
@@ -139,15 +140,15 @@
         const loaderScript = document.createElement("script");
         loaderScript.src = loaderUrl;
         loaderScript.async = true;
-        loaderScript.addEventListener("error", () => shell.showFailure("The viewer files could not be downloaded. Check your connection and try again."));
+        loaderScript.addEventListener("error", () => shell.showFailure("engine_load_failed"));
         loaderScript.addEventListener("load", () => {
-          createUnityInstance(canvas, config, shell.setApplicationProgress)
+          Promise.resolve().then(() => createUnityInstance(canvas, config, shell.setApplicationProgress))
             .then((unityInstance) => {
               window.unityInstance = unityInstance;
               shell.markEngineReady();
               fullscreenButton.addEventListener("click", () => unityInstance.SetFullscreen(1));
             })
-            .catch((error) => shell.showFailure(error && error.message ? error.message : error));
+            .catch(() => shell.showFailure("engine_start_failed"));
         });
         document.body.appendChild(loaderScript);
       })();
