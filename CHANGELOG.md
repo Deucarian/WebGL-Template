@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2] - 2026-09-15
+
+### Fixed
+
+- Clear the retained WebGL hover position when leaving the canvas or blurring
+  the window, so returning UI cannot restore stale highlights or tooltips.
+- Preserve active drag and pointer-lock input during canvas exit.
+
 ## [0.1.1] - 2026-09-08
 
 ### Fixed
