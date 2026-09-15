@@ -366,6 +366,37 @@ test("fallback notices accept all deployable profiles and ignore terminal late n
   }
 });
 
+test("leaving the canvas invalidates WebGL's last hover position without generating clicks", async () => {
+  const browser = await createShellBrowser();
+  const moves = [];
+  browser.canvas.addEventListener("mousemove", event => moves.push(event));
+  browser.canvas.dispatch("mouseleave", { buttons: 0 });
+  assert.equal(moves.length, 0, "The shell must not feed input before the engine is ready");
+  browser.shell.markEngineReady();
+  browser.canvas.dispatch("mouseleave", { buttons: 0 });
+  assert.equal(moves.length, 1);
+  assert.ok(moves[0].clientX > browser.canvas.getBoundingClientRect().right);
+  assert.ok(moves[0].clientY > browser.canvas.getBoundingClientRect().bottom);
+  assert.equal(moves[0].buttons, 0);
+  assert.equal(moves[0].bubbles, true);
+});
+
+test("pointer exit preserves active drags and pointer lock but clears hover on window blur", async () => {
+  const browser = await createShellBrowser();
+  let moves = 0;
+  browser.canvas.addEventListener("mousemove", () => moves++);
+  browser.shell.markEngineReady();
+  browser.canvas.dispatch("mouseleave", { buttons: 1 });
+  browser.canvas.dispatch("mouseleave", { buttons: 2 });
+  browser.document.pointerLockElement = browser.canvas;
+  browser.canvas.dispatch("mouseleave", { buttons: 0 });
+  browser.window.dispatchEvent({ type: "blur" });
+  assert.equal(moves, 0);
+  browser.document.pointerLockElement = null;
+  browser.window.dispatchEvent({ type: "blur" });
+  assert.equal(moves, 1);
+});
+
 async function createShellBrowser({ reducedMotion = false, lastState } = {}) {
   const source = await readFile(
     new URL("TemplateData/shell.js", templateRoot),
@@ -432,6 +463,7 @@ async function createShellBrowser({ reducedMotion = false, lastState } = {}) {
     window,
     document,
     CustomEvent,
+    MouseEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); } },
     Number,
     Object,
     String,
@@ -444,6 +476,7 @@ async function createShellBrowser({ reducedMotion = false, lastState } = {}) {
   return {
     shell,
     window,
+    document,
     CustomEvent,
     container,
     overlay,
@@ -517,8 +550,12 @@ class FakeElement {
     this.listeners.set(name, callback);
   }
 
-  dispatch(name) {
-    this.listeners.get(name)?.();
+  getBoundingClientRect() { return { left: 100, top: 50, right: 900, bottom: 650 }; }
+
+  dispatchEvent(event) { this.listeners.get(event.type)?.(event); }
+
+  dispatch(name, event) {
+    this.listeners.get(name)?.(event);
   }
 }
 
