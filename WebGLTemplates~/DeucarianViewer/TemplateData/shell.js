@@ -257,6 +257,21 @@
         }
       }
 
+      function clearPointerHover(event) {
+        if (!engineReady || document.pointerLockElement === canvas || (event && event.buttons)) return;
+        // WebGL UI picking retains the last in-canvas mouse position. Forward an
+        // outside position on exit so layout changes cannot recreate stale hover.
+        var bounds = canvas.getBoundingClientRect();
+        canvas.dispatchEvent(new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: bounds.right + 1,
+          clientY: bounds.bottom + 1,
+          buttons: 0
+        }));
+      }
+
+      canvas.addEventListener("mouseleave", clearPointerHover);
+      window.addEventListener("blur", clearPointerHover);
       canvas.addEventListener("contextmenu", function (event) { event.preventDefault(); });
       retryButton.addEventListener("click", function () { window.location.reload(); });
       window.addEventListener("deucarian-viewer-state", acceptState);
