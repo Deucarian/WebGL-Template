@@ -110,6 +110,8 @@
         const fullscreenButton = document.querySelector("#unity-fullscreen-button");
         const shell = window.DeucarianWebGLShell.create({ canvas });
         window.DeucarianWebGLShell = shell;
+        // Existing embedding hosts identify this public template contract.
+        window.SimultriaWebGLShell = shell;
 
         const buildUrl = "Build";
         const loaderUrl = buildUrl + "/{{{ LOADER_FILENAME }}}";
