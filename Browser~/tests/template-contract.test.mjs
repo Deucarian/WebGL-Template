@@ -41,6 +41,25 @@ test("runtime bridge and shell share canonical globals", async () => {
   assert.match(plugin, /window\.DeucarianWebGLTheme/);
 });
 
+test("existing embedding hosts can identify the page and observe lifecycle failure", async () => {
+  const index = await readFile(new URL("index.html", templateRoot), "utf8");
+  assert.match(index, /window\.SimultriaWebGLShell = shell/);
+  const source = await readFile(new URL("../../Runtime/Plugins/WebGL/DeucarianWebGLShell.jslib", import.meta.url), "utf8");
+  const events = [];
+  const library = {};
+  const window = { dispatchEvent: event => events.push(event) };
+  vm.runInNewContext(source, {
+    window, LibraryManager: { library },
+    mergeInto: (target, entries) => Object.assign(target, entries),
+    UTF8ToString: value => value,
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } }
+  });
+  library.DeucarianWebGLShellReportState(JSON.stringify({ state: "failed", code: "viewer_startup_failed" }));
+  assert.equal(window.SimultriaWebGLLastState, window.DeucarianWebGLLastState);
+  assert.equal(window.SimultriaWebGLLastState.state, "failed");
+  assert.deepEqual(events.map(event => event.type), ["deucarian-viewer-state", "simultria-viewer-state"]);
+});
+
 test("engine completion does not reveal the canvas before viewer_ready", async () => {
   const browser = await createShellBrowser();
 
