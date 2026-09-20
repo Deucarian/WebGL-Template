@@ -9,7 +9,9 @@ mergeInto(LibraryManager.library, {
       detail = { state: "failed", message: "The viewer returned an invalid lifecycle state." };
     }
     window.DeucarianWebGLLastState = detail;
+    window.SimultriaWebGLLastState = detail;
     window.dispatchEvent(new CustomEvent("deucarian-viewer-state", { detail: detail }));
+    window.dispatchEvent(new CustomEvent("simultria-viewer-state", { detail: detail }));
   },
 
   DeucarianWebGLShellReportProgress: function (jsonPointer) {
